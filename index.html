@@ -6,7 +6,7 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0;font-family:'Segoe UI',system-ui,sans-serif}
 body{background:linear-gradient(135deg,#0a1628,#1a3a5c,#0a1628);min-height:100vh;color:#fff;padding:20px}
-h1{text-align:center;font-size:2.2em;background:linear-gradient(90deg,#d4af37,#fff,#d4af37);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:2px}
+h1{text-align:center;font-size:2.2em;background:linear-gradient(90deg,#d4af37,#fff,#d4af37);background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:2px}
 .sub{text-align:center;color:#a0b4cc;margin:6px 0 20px}
 .wrap{max-width:1200px;margin:0 auto}
 .card{background:rgba(255,255,255,.07);border:1px solid rgba(212,175,55,.3);border-radius:14px;padding:22px;margin:14px 0;backdrop-filter:blur(8px)}
@@ -40,8 +40,11 @@ tr.qual3{background:rgba(255,193,7,.12)}
 .draw{margin-top:14px;padding:14px;background:rgba(212,175,55,.1);border-radius:10px;text-align:center}
 .progress{height:6px;background:rgba(255,255,255,.1);border-radius:3px;margin:14px 0;overflow:hidden}
 .pbar{height:100%;background:linear-gradient(90deg,#d4af37,#fff);transition:.3s}
+.live{margin-top:18px;padding-top:14px;border-top:1px dashed rgba(212,175,55,.3)}
+.live h3{color:#d4af37;text-align:center;font-size:1em;margin-bottom:10px;letter-spacing:1px}
 @media(max-width:700px){.bracket{grid-template-columns:1fr}}
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
 <div class="wrap">
@@ -51,10 +54,8 @@ tr.qual3{background:rgba(255,193,7,.12)}
 </div>
 
 <script>
-// ISO codes for FlagCDN (lowercase 2-letter)
 const ISO={Mexico:'mx','South Africa':'za','South Korea':'kr',Czechia:'cz',Canada:'ca',Bosnia:'ba',Qatar:'qa',Switzerland:'ch',Brazil:'br',Morocco:'ma',Haiti:'ht',Scotland:'gb-sct','United States':'us',Paraguay:'py',Australia:'au',Turkey:'tr',Germany:'de',Curacao:'cw','Ivory Coast':'ci',Ecuador:'ec',Netherlands:'nl',Japan:'jp',Sweden:'se',Tunisia:'tn',Belgium:'be',Egypt:'eg',Iran:'ir','New Zealand':'nz',Spain:'es','Cape Verde':'cv','Saudi Arabia':'sa',Uruguay:'uy',France:'fr',Senegal:'sn',Iraq:'iq',Norway:'no',Argentina:'ar',Algeria:'dz',Austria:'at',Jordan:'jo',Portugal:'pt','DR Congo':'cd',Uzbekistan:'uz',Colombia:'co',England:'gb-eng',Croatia:'hr',Panama:'pa',Ghana:'gh'};
 
-// 2026 format: 12 groups of 4 (A-L). Top 2 + 8 best 3rd-place teams → Round of 32
 const GROUPS={
   A:['Mexico','South Africa','South Korea','Czechia'],
   B:['Canada','Bosnia','Qatar','Switzerland'],
@@ -73,14 +74,11 @@ const GROUPS={
 let groupMatches=[],koMatches={r32:[],r16:[],qf:[],sf:[],f:[]},idx=0,phase='group',koStage='r32',pickedWin=null;
 const STAGE_NAMES={r32:'ROUND OF 32',r16:'ROUND OF 16',qf:'QUARTERFINAL',sf:'SEMIFINAL',f:'FINAL'};
 
-function flag(t,sm){const c=ISO[t];if(!c)return '🏳️';return `<img class="${sm?'flag-sm':'flag'}" src="https://flagcdn.com/w80/${c}.png" alt="${t}">`}
+function flag(t,sm){const c=ISO[t];if(!c)return '🏳️';return `<img class="${sm?'flag-sm':'flag'}" src="https://flagcdn.com/w80/${c}.png" alt="${t}" crossorigin="anonymous">`}
 
 function buildGroupMatches(){
   const out=[];
-  for(const g in GROUPS){
-    const t=GROUPS[g];
-    for(let i=0;i<4;i++)for(let j=i+1;j<4;j++)out.push({g,h:t[i],a:t[j],hg:null,ag:null});
-  }
+  for(const g in GROUPS){const t=GROUPS[g];for(let i=0;i<4;i++)for(let j=i+1;j<4;j++)out.push({g,h:t[i],a:t[j],hg:null,ag:null});}
   return out;
 }
 
@@ -105,17 +103,26 @@ function buildR32(){
     w[g]=ranked[0];r[g]=ranked[1];
     thirds.push({g,t:ranked[2],...s[ranked[2]]});
   }
-  // Best 8 third-placed teams
   thirds.sort((x,y)=>y.pts-x.pts||y.gd-x.gd||y.gf-x.gf);
   const top3=thirds.slice(0,8).map(x=>x.t);
-  // Simplified R32 pairing (winners vs runners-up/3rd)
   const seeds=[w.A,w.B,w.C,w.D,w.E,w.F,w.G,w.H,w.I,w.J,w.K,w.L,r.A,r.B,r.C,r.D];
   const opp=[r.E,r.F,r.G,r.H,r.I,r.J,r.K,r.L,...top3];
-  koMatches.r32=seeds.map((h,i)=>({h,a:opp[i],hg:null,ag:null,win:null}));
+  // Preserve existing predicted scores if teams are unchanged
+  const oldR32=koMatches.r32;
+  koMatches.r32=seeds.map((h,i)=>{
+    const a=opp[i],old=oldR32[i];
+    if(old&&old.h===h&&old.a===a)return old;
+    return{h,a,hg:null,ag:null,win:null};
+  });
+  // Rebuild later rounds only if R32 changed structurally — easier to reset propagation:
   koMatches.r16=Array(8).fill().map(_=>({h:'TBD',a:'TBD',hg:null,ag:null,win:null}));
   koMatches.qf=Array(4).fill().map(_=>({h:'TBD',a:'TBD',hg:null,ag:null,win:null}));
   koMatches.sf=Array(2).fill().map(_=>({h:'TBD',a:'TBD',hg:null,ag:null,win:null}));
   koMatches.f=[{h:'TBD',a:'TBD',hg:null,ag:null,win:null}];
+  // Re-propagate any already-played R32+ matches
+  ['r32','r16','qf','sf'].forEach(st=>{
+    koMatches[st].forEach((m,i)=>{if(m.win)propagate(st,i,m.win)});
+  });
 }
 
 function propagate(stage,i,winner){
@@ -131,6 +138,103 @@ function render(){
   if(phase==='recap')return renderRecap();
 }
 
+// Live preview HTML for standings + bracket (reused between screens)
+function liveStandingsHTML(){
+  let html='<div class="grid-grp">';
+  for(const g in GROUPS){
+    const{s,ranked}=standings(g);
+    html+=`<div><div class="grp-title">Group ${g}</div><table>
+      <tr><th>#</th><th>Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GD</th><th>Pts</th></tr>`;
+    ranked.forEach((t,i)=>{
+      const x=s[t];const cls=i<2?'qual':i===2?'qual3':'';
+      html+=`<tr class="${cls}"><td>${i+1}</td><td class="tn">${flag(t,1)}${t}</td><td>${x.p}</td><td>${x.w}</td><td>${x.d}</td><td>${x.l}</td><td>${x.gd>0?'+':''}${x.gd}</td><td><b>${x.pts}</b></td></tr>`;
+    });
+    html+='</table></div>';
+  }
+  html+='</div>';
+  return html;
+}
+
+function liveBracketHTML(){
+  // Only show if R32 has been built
+  if(!koMatches.r32.length)return '<div style="text-align:center;color:#a0b4cc;font-size:.9em">Bracket will appear once group stage is complete.</div>';
+  const champ=koMatches.f[0].win;
+  let html='<div class="bracket">';
+  const cols=[['R32','r32'],['R16','r16'],['QF','qf'],['SF','sf'],['Final','f'],['Champion','champ']];
+  cols.forEach(([label,k])=>{
+    html+=`<div class="bcol"><div class="bhead">${label}</div>`;
+    if(k==='champ'){
+      if(champ)html+=`<div class="bmatch" style="text-align:center;background:rgba(212,175,55,.2)">${flag(champ)}<div class="bwin" style="margin-top:6px">${champ}</div>🏆</div>`;
+      else html+=`<div class="bmatch" style="text-align:center;color:#a0b4cc">TBD</div>`;
+    }else{
+      koMatches[k].forEach(m=>{
+        const hf=m.h!=='TBD'?flag(m.h,1):'';
+        const af=m.a!=='TBD'?flag(m.a,1):'';
+        html+=`<div class="bmatch">
+          <div class="brow ${m.win===m.h?'bwin':''}"><span>${hf}${m.h}</span><span>${m.hg??'-'}</span></div>
+          <div class="brow ${m.win===m.a?'bwin':''}"><span>${af}${m.a}</span><span>${m.ag??'-'}</span></div>
+        </div>`;
+      });
+    }
+    html+='</div>';
+  });
+  html+='</div>';
+  return html;
+}
+
+function livePanelHTML(){
+  return `<div class="card live">
+    <h3>📊 LIVE GROUP STANDINGS</h3>
+    ${liveStandingsHTML()}
+    <h3 style="margin-top:18px">🥇 LIVE BRACKET</h3>
+    ${liveBracketHTML()}
+  </div>`;
+}
+
+// Update live scores in current group match into groupMatches[idx] for live preview
+function updateLiveGroup(){
+  const hg=parseInt(document.getElementById('hg').value),ag=parseInt(document.getElementById('ag').value);
+  groupMatches[idx].hg=isNaN(hg)?null:hg;
+  groupMatches[idx].ag=isNaN(ag)?null:ag;
+  document.getElementById('liveBox').innerHTML=`
+    <h3>📊 LIVE GROUP STANDINGS</h3>
+    ${liveStandingsHTML()}
+    <h3 style="margin-top:18px">🥇 LIVE BRACKET</h3>
+    ${liveBracketHTML()}`;
+}
+
+function updateLiveKO(){
+  // Don't permanently commit unless valid; for live view, temporarily set
+  const m=koMatches[koStage][idx];
+  const hg=parseInt(document.getElementById('hg').value),ag=parseInt(document.getElementById('ag').value);
+  const oldH=m.hg,oldA=m.ag,oldW=m.win;
+  m.hg=isNaN(hg)?null:hg;m.ag=isNaN(ag)?null:ag;
+  if(m.hg!==null&&m.ag!==null){
+    if(m.hg>m.ag)m.win=m.h;else if(m.ag>m.hg)m.win=m.a;else m.win=null;
+  }else m.win=null;
+  // Re-propagate everything from current stage forward for accurate live view
+  rebuildKOFromStage(koStage);
+  document.getElementById('liveBox').innerHTML=`
+    <h3>📊 LIVE GROUP STANDINGS</h3>
+    ${liveStandingsHTML()}
+    <h3 style="margin-top:18px">🥇 LIVE BRACKET</h3>
+    ${liveBracketHTML()}`;
+  checkDraw();
+}
+
+function rebuildKOFromStage(fromStage){
+  const order=['r32','r16','qf','sf','f'];
+  const start=order.indexOf(fromStage);
+  // Clear subsequent stages' team assignments (but keep their scores for re-eval if teams match later)
+  for(let i=start+1;i<order.length;i++){
+    koMatches[order[i]].forEach(m=>{m.h='TBD';m.a='TBD'});
+  }
+  // Propagate forward
+  for(let i=start;i<order.length-1;i++){
+    koMatches[order[i]].forEach((m,j)=>{if(m.win)propagate(order[i],j,m.win)});
+  }
+}
+
 function renderGroup(){
   const m=groupMatches[idx];
   const pct=(idx/groupMatches.length)*100;
@@ -140,16 +244,23 @@ function renderGroup(){
       <div class="progress"><div class="pbar" style="width:${pct}%"></div></div>
       <div class="match">
         <div class="team">${flag(m.h)}<div class="tname">${m.h}</div></div>
-        <input class="score" id="hg" type="number" min="0" value="${m.hg??0}" onfocus="this.select()">
+        <input class="score" id="hg" type="number" min="0" value="${m.hg??0}" onfocus="this.select()" oninput="updateLiveGroup()">
         <div class="dash">-</div>
-        <input class="score" id="ag" type="number" min="0" value="${m.ag??0}" onfocus="this.select()">
+        <input class="score" id="ag" type="number" min="0" value="${m.ag??0}" onfocus="this.select()" oninput="updateLiveGroup()">
         <div class="team">${flag(m.a)}<div class="tname">${m.a}</div></div>
       </div>
       <div class="center" style="margin-top:18px">
         ${idx>0?'<button class="btn sec" onclick="prev()">← Back</button>':''}
         <button class="btn" onclick="saveGroup()">Next →</button>
       </div>
+    </div>
+    <div id="liveBox" class="card live">
+      <h3>📊 LIVE GROUP STANDINGS</h3>
+      ${liveStandingsHTML()}
+      <h3 style="margin-top:18px">🥇 LIVE BRACKET</h3>
+      ${liveBracketHTML()}
     </div>`;
+  updateLiveGroup();
 }
 
 function saveGroup(){
@@ -178,9 +289,9 @@ function renderKO(){
       <div class="center"><span class="tag">${STAGE_NAMES[koStage]} · ${idx+1}/${total}</span></div>
       <div class="match">
         <div class="team">${flag(m.h)}<div class="tname">${m.h}</div></div>
-        <input class="score" id="hg" type="number" min="0" value="${m.hg??0}" oninput="checkDraw()" onfocus="this.select()">
+        <input class="score" id="hg" type="number" min="0" value="${m.hg??0}" oninput="updateLiveKO()" onfocus="this.select()">
         <div class="dash">-</div>
-        <input class="score" id="ag" type="number" min="0" value="${m.ag??0}" oninput="checkDraw()" onfocus="this.select()">
+        <input class="score" id="ag" type="number" min="0" value="${m.ag??0}" oninput="updateLiveKO()" onfocus="this.select()">
         <div class="team">${flag(m.a)}<div class="tname">${m.a}</div></div>
       </div>
       <div id="drawBox" class="draw" style="display:none">
@@ -192,16 +303,38 @@ function renderKO(){
         <button class="btn sec" onclick="prev()">← Back</button>
         <button class="btn" onclick="saveKO()">Next →</button>
       </div>
+    </div>
+    <div id="liveBox" class="card live">
+      <h3>📊 LIVE GROUP STANDINGS</h3>
+      ${liveStandingsHTML()}
+      <h3 style="margin-top:18px">🥇 LIVE BRACKET</h3>
+      ${liveBracketHTML()}
     </div>`;
   checkDraw();
 }
 
 function checkDraw(){
-  const hg=parseInt(document.getElementById('hg').value),ag=parseInt(document.getElementById('ag').value);
-  document.getElementById('drawBox').style.display=(!isNaN(hg)&&!isNaN(ag)&&hg===ag)?'block':'none';
+  const hgEl=document.getElementById('hg'),agEl=document.getElementById('ag');
+  if(!hgEl)return;
+  const hg=parseInt(hgEl.value),ag=parseInt(agEl.value);
+  const db=document.getElementById('drawBox');
+  if(db)db.style.display=(!isNaN(hg)&&!isNaN(ag)&&hg===ag)?'block':'none';
 }
 
-function pickWin(s,el){pickedWin=s;el.parentNode.querySelectorAll('.btn').forEach(b=>{b.style.background='transparent';b.style.color='#d4af37'});el.style.background='linear-gradient(90deg,#d4af37,#b8860b)';el.style.color='#000'}
+function pickWin(s,el){
+  pickedWin=s;
+  el.parentNode.querySelectorAll('.btn').forEach(b=>{b.style.background='transparent';b.style.color='#d4af37'});
+  el.style.background='linear-gradient(90deg,#d4af37,#b8860b)';el.style.color='#000';
+  // Apply pick to live bracket immediately
+  const m=koMatches[koStage][idx];
+  m.win=s==='h'?m.h:m.a;
+  rebuildKOFromStage(koStage);
+  document.getElementById('liveBox').innerHTML=`
+    <h3>📊 LIVE GROUP STANDINGS</h3>
+    ${liveStandingsHTML()}
+    <h3 style="margin-top:18px">🥇 LIVE BRACKET</h3>
+    ${liveBracketHTML()}`;
+}
 
 function saveKO(){
   const m=koMatches[koStage][idx];
@@ -210,9 +343,9 @@ function saveKO(){
   if(m.h==='TBD'||m.a==='TBD')return alert('Teams not set yet');
   let win;
   if(hg>ag)win=m.h;else if(ag>hg)win=m.a;
-  else{if(!pickedWin)return alert('Pick a winner for the draw');win=pickedWin==='h'?m.h:m.a}
+  else{if(!pickedWin&&!m.win)return alert('Pick a winner for the draw');win=pickedWin?(pickedWin==='h'?m.h:m.a):m.win}
   m.hg=hg;m.ag=ag;m.win=win;pickedWin=null;
-  propagate(koStage,idx,win);
+  rebuildKOFromStage(koStage);
   const order=['r32','r16','qf','sf','f'];
   if(idx<koMatches[koStage].length-1){idx++;render()}
   else{const i=order.indexOf(koStage);if(i<order.length-1){koStage=order[i+1];idx=0;render()}else{phase='recap';render()}}
@@ -220,43 +353,39 @@ function saveKO(){
 
 function renderRecap(){
   const champ=koMatches.f[0].win;
-  let html=`<div class="card center"><h2 style="color:#d4af37">🏆 YOUR PREDICTIONS</h2>
+  let html=`<div class="center" style="margin-bottom:10px">
+    <button class="btn" onclick="downloadPNG()">📥 Download PNG</button>
+    <button class="btn sec" onclick="reset()">Restart</button>
+  </div>
+  <div id="recapArea">
+  <div class="card center"><h2 style="color:#d4af37">🏆 YOUR PREDICTIONS</h2>
     <div style="font-size:1.5em;margin:14px 0">Champion:</div>
     <div>${flag(champ)}</div>
     <div style="font-size:1.6em;color:#d4af37;font-weight:900;margin-top:8px">${champ} 🏆</div>
-    <button class="btn" onclick="reset()" style="margin-top:14px">Restart</button></div>`;
+  </div>`;
 
-  html+='<div class="card"><h2 style="color:#d4af37;text-align:center;margin-bottom:12px">📊 GROUP STANDINGS</h2><div class="grid-grp">';
-  for(const g in GROUPS){
-    const{s,ranked}=standings(g);
-    html+=`<div><div class="grp-title">Group ${g}</div><table>
-      <tr><th>#</th><th>Team</th><th>P</th><th>W</th><th>D</th><th>L</th><th>GD</th><th>Pts</th></tr>`;
-    ranked.forEach((t,i)=>{
-      const x=s[t];const cls=i<2?'qual':i===2?'qual3':'';
-      html+=`<tr class="${cls}"><td>${i+1}</td><td class="tn">${flag(t,1)}${t}</td><td>${x.p}</td><td>${x.w}</td><td>${x.d}</td><td>${x.l}</td><td>${x.gd>0?'+':''}${x.gd}</td><td><b>${x.pts}</b></td></tr>`;
-    });
-    html+='</table></div>';
-  }
-  html+='</div><div style="margin-top:10px;font-size:.85em;color:#a0b4cc;text-align:center">🟩 Top 2 qualify · 🟨 Best 8 third-placed teams qualify</div></div>';
+  html+='<div class="card"><h2 style="color:#d4af37;text-align:center;margin-bottom:12px">📊 GROUP STANDINGS</h2>'+liveStandingsHTML()+
+    '<div style="margin-top:10px;font-size:.85em;color:#a0b4cc;text-align:center">🟩 Top 2 qualify · 🟨 Best 8 third-placed teams qualify</div></div>';
 
-  html+='<div class="card"><h2 style="color:#d4af37;text-align:center;margin-bottom:14px">🥇 KNOCKOUT BRACKET</h2><div class="bracket">';
-  const cols=[['R32','r32'],['R16','r16'],['QF','qf'],['SF','sf'],['Final','f'],['Champion','champ']];
-  cols.forEach(([label,k])=>{
-    html+=`<div class="bcol"><div class="bhead">${label}</div>`;
-    if(k==='champ'){
-      html+=`<div class="bmatch" style="text-align:center;background:rgba(212,175,55,.2)">${flag(champ)}<div class="bwin" style="margin-top:6px">${champ}</div>🏆</div>`;
-    }else{
-      koMatches[k].forEach(m=>{
-        html+=`<div class="bmatch">
-          <div class="brow ${m.win===m.h?'bwin':''}"><span>${flag(m.h,1)}${m.h}</span><span>${m.hg??'-'}</span></div>
-          <div class="brow ${m.win===m.a?'bwin':''}"><span>${flag(m.a,1)}${m.a}</span><span>${m.ag??'-'}</span></div>
-        </div>`;
-      });
-    }
-    html+='</div>';
-  });
-  html+='</div></div>';
+  html+='<div class="card"><h2 style="color:#d4af37;text-align:center;margin-bottom:14px">🥇 KNOCKOUT BRACKET</h2>'+liveBracketHTML()+'</div>';
+  html+='</div>';
   document.getElementById('app').innerHTML=html;
+}
+
+function downloadPNG(){
+  const area=document.getElementById('recapArea');
+  const btn=event.target;
+  btn.disabled=true;btn.textContent='⏳ Generating...';
+  html2canvas(area,{backgroundColor:'#0a1628',scale:2,useCORS:true,allowTaint:true}).then(canvas=>{
+    const link=document.createElement('a');
+    link.download='world-cup-2026-predictions.png';
+    link.href=canvas.toDataURL('image/png');
+    link.click();
+    btn.disabled=false;btn.textContent='📥 Download PNG';
+  }).catch(err=>{
+    alert('Error generating PNG: '+err.message);
+    btn.disabled=false;btn.textContent='📥 Download PNG';
+  });
 }
 
 function reset(){if(confirm('Restart all predictions?')){groupMatches=buildGroupMatches();koMatches={r32:[],r16:[],qf:[],sf:[],f:[]};idx=0;phase='group';koStage='r32';render()}}
