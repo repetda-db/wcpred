@@ -140,9 +140,9 @@ function renderGroup(){
       <div class="progress"><div class="pbar" style="width:${pct}%"></div></div>
       <div class="match">
         <div class="team">${flag(m.h)}<div class="tname">${m.h}</div></div>
-        <input class="score" id="hg" type="number" min="0" value="${m.hg??''}">
+        <input class="score" id="hg" type="number" min="0" value="${m.hg??0}" onfocus="this.select()">
         <div class="dash">-</div>
-        <input class="score" id="ag" type="number" min="0" value="${m.ag??''}">
+        <input class="score" id="ag" type="number" min="0" value="${m.ag??0}" onfocus="this.select()">
         <div class="team">${flag(m.a)}<div class="tname">${m.a}</div></div>
       </div>
       <div class="center" style="margin-top:18px">
@@ -178,9 +178,9 @@ function renderKO(){
       <div class="center"><span class="tag">${STAGE_NAMES[koStage]} · ${idx+1}/${total}</span></div>
       <div class="match">
         <div class="team">${flag(m.h)}<div class="tname">${m.h}</div></div>
-        <input class="score" id="hg" type="number" min="0" value="${m.hg??''}" oninput="checkDraw()">
+        <input class="score" id="hg" type="number" min="0" value="${m.hg??0}" oninput="checkDraw()" onfocus="this.select()">
         <div class="dash">-</div>
-        <input class="score" id="ag" type="number" min="0" value="${m.ag??''}" oninput="checkDraw()">
+        <input class="score" id="ag" type="number" min="0" value="${m.ag??0}" oninput="checkDraw()" onfocus="this.select()">
         <div class="team">${flag(m.a)}<div class="tname">${m.a}</div></div>
       </div>
       <div id="drawBox" class="draw" style="display:none">
