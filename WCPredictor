@@ -1,0 +1,322 @@
+from flask import Flask, render_template_inline, request, session, redirect, url_for, jsonify
+import json
+
+app = Flask(__name__)
+app.secret_key = 'wc2026secret'
+
+GROUPS = {
+    'A': ['Qatar','Ecuador','Senegal','Netherlands'],
+    'B': ['England','Iran','USA','Wales'],
+    'C': ['Argentina','Saudi Arabia','Mexico','Poland'],
+    'D': ['France','Australia','Denmark','Tunisia'],
+    'E': ['Spain','Costa Rica','Germany','Japan'],
+    'F': ['Belgium','Canada','Morocco','Croatia'],
+    'G': ['Brazil','Serbia','Switzerland','Cameroon'],
+    'H': ['Portugal','Ghana','Uruguay','South Korea'],
+}
+
+FLAGS = {
+    'Qatar':'🇶🇦','Ecuador':'🇪🇨','Senegal':'🇸🇳','Netherlands':'🇳🇱',
+    'England':'🏴󠁧󠁢󠁥󠁮󠁧󠁿','Iran':'🇮🇷','USA':'🇺🇸','Wales':'🏴󠁧󠁢󠁷󠁬󠁳󠁿',
+    'Argentina':'🇦🇷','Saudi Arabia':'🇸🇦','Mexico':'🇲🇽','Poland':'🇵🇱',
+    'France':'🇫🇷','Australia':'🇦🇺','Denmark':'🇩🇰','Tunisia':'🇹🇳',
+    'Spain':'🇪🇸','Costa Rica':'🇨🇷','Germany':'🇩🇪','Japan':'🇯🇵',
+    'Belgium':'🇧🇪','Canada':'🇨🇦','Morocco':'🇲🇦','Croatia':'🇭🇷',
+    'Brazil':'🇧🇷','Serbia':'🇷🇸','Switzerland':'🇨🇭','Cameroon':'🇨🇲',
+    'Portugal':'🇵🇹','Ghana':'🇬🇭','Uruguay':'🇺🇾','South Korea':'🇰🇷',
+    'TBD':'🏳️'
+}
+
+def group_matches():
+    matches = []
+    for g, teams in GROUPS.items():
+        pairs = [(teams[i],teams[j]) for i in range(4) for j in range(i+1,4)]
+        for h,a in pairs:
+            matches.append({'group':g,'home':h,'away':a})
+    return matches
+
+def calc_standings(group, results):
+    teams = GROUPS[group]
+    st = {t:{'pts':0,'gf':0,'ga':0,'gd':0,'w':0,'d':0,'l':0} for t in teams}
+    for r in results:
+        if r['group']!=group: continue
+        h,a,hg,ag = r['home'],r['away'],r['hg'],r['ag']
+        st[h]['gf']+=hg; st[h]['ga']+=ag; st[a]['gf']+=ag; st[a]['ga']+=hg
+        if hg>ag: st[h]['pts']+=3; st[h]['w']+=1; st[a]['l']+=1
+        elif hg<ag: st[a]['pts']+=3; st[a]['w']+=1; st[h]['l']+=1
+        else: st[h]['pts']+=1; st[a]['pts']+=1; st[h]['d']+=1; st[a]['d']+=1
+    for t in st: st[t]['gd']=st[t]['gf']-st[t]['ga']
+    ranked = sorted(teams, key=lambda t:(-st[t]['pts'],-st[t]['gd'],-st[t]['gf']))
+    return st, ranked
+
+HTML = '''<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>World Cup Predictor</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',sans-serif;background:linear-gradient(135deg,#0a1628 0%,#1a3a5c 50%,#0a1628 100%);min-height:100vh;color:#fff}
+.hero{text-align:center;padding:40px 20px 20px;background:linear-gradient(180deg,rgba(212,175,55,0.15) 0%,transparent 100%)}
+.hero h1{font-size:2.8em;font-weight:900;background:linear-gradient(90deg,#d4af37,#fff,#d4af37);-webkit-background-clip:text;-webkit-text-fill-color:transparent;letter-spacing:2px}
+.hero p{color:#a0b4cc;margin-top:8px;font-size:1.1em}
+.trophy{font-size:3em;margin-bottom:10px}
+.container{max-width:900px;margin:0 auto;padding:20px}
+.card{background:rgba(255,255,255,0.07);border:1px solid rgba(212,175,55,0.3);border-radius:16px;padding:30px;margin:20px 0;backdrop-filter:blur(10px)}
+.match-card{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:24px;margin:16px 0}
+.match-teams{display:flex;align-items:center;justify-content:center;gap:20px;font-size:1.3em;font-weight:700;margin-bottom:20px}
+.team-name{text-align:center;min-width:140px}
+.flag{font-size:2em;display:block;margin-bottom:4px}
+.vs{color:#d4af37;font-size:1.1em}
+.score-inputs{display:flex;align-items:center;justify-content:center;gap:16px}
+.score-inputs input{width:70px;height:70px;font-size:2em;text-align:center;border-radius:12px;border:2px solid rgba(212,175,55,0.5);background:rgba(0,0,0,0.3);color:#fff;font-weight:700;outline:none;transition:.2s}
+.score-inputs input:focus{border-color:#d4af37;background:rgba(212,175,55,0.1)}
+.score-dash{font-size:2em;color:#d4af37}
+.group-label{display:inline-block;background:linear-gradient(90deg,#d4af37,#b8860b);color:#000;font-weight:900;padding:4px 14px;border-radius:20px;font-size:.85em;margin-bottom:12px}
+.progress{background:rgba(255,255,255,0.1);border-radius:20px;height:8px;margin:16px 0}
+.progress-bar{background:linear-gradient(90deg,#d4af37,#ffd700);height:8px;border-radius:20px;transition:.4s}
+.btn{display:inline-block;padding:14px 36px;background:linear-gradient(90deg,#d4af37,#b8860b);color:#000;font-weight:900;font-size:1.1em;border:none;border-radius:30px;cursor:pointer;text-decoration:none;transition:.2s;letter-spacing:1px}
+.btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(212,175,55,0.4)}
+.btn-sec{background:transparent;border:2px solid #d4af37;color:#d4af37}
+.btn-sec:hover{background:rgba(212,175,55,0.1)}
+.nav{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:20px 0}
+/* Bracket */
+.bracket-wrap{overflow-x:auto;padding:20px 0}
+.bracket{display:flex;gap:0;min-width:800px}
+.round{display:flex;flex-direction:column;justify-content:space-around;flex:1;padding:0 8px}
+.round-title{text-align:center;font-weight:900;color:#d4af37;font-size:.85em;text-transform:uppercase;letter-spacing:1px;margin-bottom:12px;padding:6px;border-bottom:1px solid rgba(212,175,55,0.3)}
+.b-match{background:rgba(255,255,255,0.07);border:1px solid rgba(212,175,55,0.3);border-radius:10px;padding:10px;margin:6px 0;position:relative;cursor:pointer;transition:.2s}
+.b-match:hover{border-color:#d4af37;background:rgba(212,175,55,0.08)}
+.b-match.current{border-color:#d4af37;box-shadow:0 0 12px rgba(212,175,55,0.4)}
+.b-team{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:.9em}
+.b-team.winner{font-weight:700;color:#d4af37}
+.b-score{margin-left:auto;font-weight:700;background:rgba(0,0,0,0.3);padding:2px 8px;border-radius:6px;min-width:28px;text-align:center}
+/* Standings */
+.standings-table{width:100%;border-collapse:collapse;font-size:.9em}
+.standings-table th{color:#d4af37;padding:8px 12px;text-align:left;border-bottom:1px solid rgba(212,175,55,0.3);font-weight:700}
+.standings-table td{padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.05)}
+.standings-table tr:nth-child(-n+2) td{background:rgba(212,175,55,0.06)}
+.standings-table tr.qualified td:first-child{border-left:3px solid #d4af37}
+.rank{color:#888;font-size:.8em}
+/* Recap groups */
+.groups-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:20px}
+.group-block{background:rgba(255,255,255,0.05);border:1px solid rgba(212,175,55,0.2);border-radius:12px;overflow:hidden}
+.group-header{background:linear-gradient(90deg,rgba(212,175,55,0.2),transparent);padding:10px 16px;font-weight:900;font-size:1em;letter-spacing:2px;color:#d4af37}
+/* Step indicator */
+.steps{display:flex;justify-content:center;gap:8px;margin:20px 0;flex-wrap:wrap}
+.step{padding:6px 16px;border-radius:20px;font-size:.8em;font-weight:700;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.1);color:#666}
+.step.done{background:rgba(212,175,55,0.15);border-color:rgba(212,175,55,0.4);color:#d4af37}
+.step.active{background:rgba(212,175,55,0.3);border-color:#d4af37;color:#fff}
+.center{text-align:center}
+.gold{color:#d4af37}
+input::-webkit-outer-spin-button,input::-webkit-inner-spin-button{-webkit-appearance:none}
+input[type=number]{-moz-appearance:textfield}
+</style>
+</head>
+<body>
+<div class="hero">
+  <div class="trophy">🏆</div>
+  <h1>WORLD CUP PREDICTOR</h1>
+  <p>Predict every match • Generate brackets • See your recap</p>
+</div>
+{% block content %}{% endblock %}
+<script>
+function setScore(input){
+  if(input.value<0)input.value=0;
+  if(input.value>99)input.value=9;
+}
+</script>
+</body>
+</html>'''
+
+# We'll render everything inline
+from flask import render_template_string
+
+def base_render(content, **kwargs):
+    full = HTML.replace('{% block content %}{% endblock %}', content)
+    return render_template_string(full, **kwargs)
+
+@app.route('/')
+def index():
+    session.clear()
+    content = '''
+<div class="container">
+  <div class="card center">
+    <h2 style="font-size:2em;margin-bottom:16px">⚽ Welcome!</h2>
+    <p style="color:#a0b4cc;margin-bottom:30px;font-size:1.1em">Predict every World Cup match score, from group stage to the Final. Get your personalized bracket and standings recap!</p>
+    <div style="margin-bottom:24px">
+      <div style="font-size:3em;margin-bottom:8px">🇦🇷🇫🇷🇧🇷🏴󠁧󠁢󠁥󠁮󠁧󠁿🇩🇪🇵🇹🇪🇸🇳🇱</div>
+      <div style="font-size:2em">🇸🇳🇲🇦🇯🇵🇺🇸🇲🇽🇭🇷🇧🇪🇺🇾</div>
+    </div>
+    <a href="/predict/0" class="btn">🚀 Start Predicting</a>
+  </div>
+</div>'''
+    return base_render(content)
+
+@app.route('/predict/<int:idx>', methods=['GET','POST'])
+def predict(idx):
+    matches = group_matches()
+    total = len(matches)  # 48
+
+    if request.method == 'POST':
+        hg = int(request.form.get('hg',0))
+        ag = int(request.form.get('ag',0))
+        results = session.get('results',[])
+        m = matches[idx]
+        results.append({'group':m['group'],'home':m['home'],'away':m['away'],'hg':hg,'ag':ag,'type':'group'})
+        session['results'] = results
+        next_idx = idx + 1
+        if next_idx >= total:
+            return redirect(url_for('build_bracket'))
+        return redirect(url_for('predict', idx=next_idx))
+
+    if idx >= total:
+        return redirect(url_for('build_bracket'))
+
+    m = matches[idx]
+    pct = int(idx/total*100)
+    # group progress: how many in this group done
+    g_matches = [x for x in matches if x['group']==m['group']]
+    g_done = sum(1 for x in (session.get('results') or []) if x['group']==m['group'])
+
+    content = f'''
+<div class="container">
+  <div class="steps">
+    <div class="step active">Group Stage</div>
+    <div class="step">Round of 32</div>
+    <div class="step">Round of 16</div>
+    <div class="step">Quarters</div>
+    <div class="step">Semis</div>
+    <div class="step">Final</div>
+  </div>
+  <div style="margin-bottom:8px;display:flex;justify-content:space-between;color:#a0b4cc;font-size:.9em">
+    <span>Match {idx+1} of {total}</span><span>{pct}% complete</span>
+  </div>
+  <div class="progress"><div class="progress-bar" style="width:{pct}%"></div></div>
+  <form method="POST">
+    <div class="match-card">
+      <div class="center"><span class="group-label">GROUP {m["group"]}</span></div>
+      <div class="match-teams">
+        <div class="team-name">
+          <span class="flag">{FLAGS.get(m["home"],"🏳️")}</span>
+          {m["home"]}
+        </div>
+        <span class="vs">VS</span>
+        <div class="team-name">
+          <span class="flag">{FLAGS.get(m["away"],"🏳️")}</span>
+          {m["away"]}
+        </div>
+      </div>
+      <div class="score-inputs">
+        <input type="number" name="hg" min="0" max="99" value="0" oninput="setScore(this)" autofocus>
+        <span class="score-dash">–</span>
+        <input type="number" name="ag" min="0" max="99" value="0" oninput="setScore(this)">
+      </div>
+    </div>
+    <div class="nav">
+      <button type="submit" class="btn">Next Match ➜</button>
+    </div>
+  </form>
+</div>'''
+    return base_render(content)
+
+@app.route('/build_bracket')
+def build_bracket():
+    results = session.get('results', [])
+    qualifiers = {}
+    for g in GROUPS:
+        st, ranked = calc_standings(g, results)
+        qualifiers[g] = ranked
+
+    # R32: 16 matches. Winners: 1st, 2nd of each group
+    # Classic WC R32 pairing
+    r32 = [
+        (qualifiers['A'][0], qualifiers['B'][1]),
+        (qualifiers['C'][0], qualifiers['D'][1]),
+        (qualifiers['E'][0], qualifiers['F'][1]),
+        (qualifiers['G'][0], qualifiers['H'][1]),
+        (qualifiers['B'][0], qualifiers['A'][1]),
+        (qualifiers['D'][0], qualifiers['C'][1]),
+        (qualifiers['F'][0], qualifiers['E'][1]),
+        (qualifiers['H'][0], qualifiers['G'][1]),
+    ]
+
+    bracket = {
+        'r32': [{'home':h,'away':a,'hg':None,'ag':None} for h,a in r32],
+        'r16': [{'home':'TBD','away':'TBD','hg':None,'ag':None} for _ in range(8)],
+        'qf':  [{'home':'TBD','away':'TBD','hg':None,'ag':None} for _ in range(4)],
+        'sf':  [{'home':'TBD','away':'TBD','hg':None,'ag':None} for _ in range(2)],
+        'final':[{'home':'TBD','away':'TBD','hg':None,'ag':None}],
+    }
+    session['bracket'] = bracket
+    return redirect(url_for('predict_bracket', stage='r32', idx=0))
+
+@app.route('/bracket/<stage>/<int:idx>', methods=['GET','POST'])
+def predict_bracket(stage, idx):
+    bracket = session.get('bracket',{})
+    stage_order = ['r32','r16','qf','sf','final']
+    stage_names = {'r32':'Round of 32','r16':'Round of 16','qf':'Quarter-Finals','sf':'Semi-Finals','final':'THE FINAL'}
+    step_labels = ['Group Stage','Round of 32','Round of 16','Quarters','Semis','Final']
+    stage_steps = {'r32':1,'r16':2,'qf':3,'sf':4,'final':5}
+
+    matches = bracket[stage]
+    total = len(matches)
+
+    if request.method == 'POST':
+        hg = int(request.form.get('hg',0))
+        ag = int(request.form.get('ag',0))
+        # Handle draw with extra time - force a winner
+        if hg == ag:
+            # Default: home wins in ET (user can adjust)
+            winner_choice = request.form.get('winner', matches[idx]['home'])
+        else:
+            winner_choice = matches[idx]['home'] if hg > ag else matches[idx]['away']
+
+        matches[idx]['hg'] = hg
+        matches[idx]['ag'] = ag
+        matches[idx]['winner'] = winner_choice
+        bracket[stage] = matches
+
+        # Propagate winner to next round
+        next_stage_map = {'r32':'r16','r16':'qf','qf':'sf','sf':'final'}
+        if stage in next_stage_map:
+            ns = next_stage_map[stage]
+            nm = idx // 2
+            if idx % 2 == 0:
+                bracket[ns][nm]['home'] = winner_choice
+            else:
+                bracket[ns][nm]['away'] = winner_choice
+
+        session['bracket'] = bracket
+
+        if idx + 1 < total:
+            return redirect(url_for('predict_bracket', stage=stage, idx=idx+1))
+        else:
+            si = stage_order.index(stage)
+            if si + 1 < len(stage_order):
+                return redirect(url_for('predict_bracket', stage=stage_order[si+1], idx=0))
+            else:
+                return redirect(url_for('recap'))
+
+    m = matches[idx]
+    is_draw_possible = True
+    pct = int(idx/total*100) if total > 1 else 100
+    active_step = stage_steps.get(stage, 1)
+
+    steps_html = ''.join(f'<div class="step {"active" if i==active_step else "done" if i<active_step else ""}">{l}</div>'
+                         for i,l in enumerate(step_labels))
+
+    draw_section = ''
+    if is_draw_possible:
+        draw_section = f'''
+        <div id="draw-section" style="display:none;margin-top:16px;padding:16px;background:rgba(212,175,55,0.1);border-radius:10px;text-align:center">
+          <p style="color:#d4af37;margin-bottom:12px">⚡ Draw! Who wins in extra time/penalties?</p>
+          <div style="display:flex;gap:12px;justify-content:center">
+            <button type="submit" name="winner" value="{m["home"]}" class="btn" style="font-size:.9em">{FLAGS.get(m["home"],"🏳️")} {m["home"]}</button>
+            <button type="submit" name="winner" value="{m["away"]}" class="btn" style="font-size:.9em">{FLAGS.get(m["away"],"🏳️")} {m["away"]}</button>
+          </div>
+        </div>'''
+
+    content = f'''
+<div class="container">
